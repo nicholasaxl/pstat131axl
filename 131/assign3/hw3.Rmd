@@ -1,0 +1,246 @@
+---
+title: "Homework Assignment 3"
+author: "Nicholas Axl Andrian"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: pdf_document
+---
+
+
+```{r setup, echo=FALSE}
+library(knitr)
+# set global chunk options: images will be 7x5 inches
+knitr::opts_chunk$set(fig.width=7, fig.height=5)
+options(digits = 4)
+
+## indents are for indenting r code as formatted text
+## They may need to be adjusted depending on your OS
+# if your output looks odd, increase or decrease indent
+indent1 = '    '
+indent2 = '        '
+indent3 = '            '
+```
+
+Loading needed libraries
+
+```{r}
+library(tidyverse)
+library(ISLR)
+library(glmnet)
+library(tree)
+library(maptree)
+library(randomForest)
+library(ROCR)
+library(gbm)
+```
+
+Predicting carseats sales using regularized regression methods
+```{r}
+set.seed(123)
+dat <- model.matrix(Sales~., Carseats)
+train = sample(nrow(dat), 30)
+x.train = dat[train, ]
+y.train = Carseats[train, ]$Sales
+# The rest as test data
+x.test = dat[-train, ]
+y.test = Carseats[-train, ]$Sales
+```
+
+(a) finding the best lambda
+```{r}
+set.seed(123)
+lambda.list.ridge = 1000 * exp(seq(0, log(1e-5), length = 100))
+cv_ridge_mod = cv.glmnet(x.train, y.train, alpha = 0, lambda = lambda.list.ridge, nfolds = 5)
+bestlam = cv_ridge_mod$lambda.min
+bestlam
+```
+refitting into a ridge regression model with the optimal best_lam
+```{r}
+ridge_mod = glmnet(x.train, y.train, alpha=0, lambda = bestlam)
+coef(ridge_mod)
+```
+
+(b) finding train mse
+```{r}
+ridge_train_pred <- predict(ridge_mod, newx = x.train, s = bestlam)
+train_mse <- mean((y.train - ridge_train_pred)^2)
+train_mse
+```
+finding test mse
+```{r}
+ridge_test_pred <- predict(ridge_mod, newx = x.test, s = bestlam)
+test_mse <- mean((y.test - ridge_test_pred)^2)
+test_mse
+```
+It is significantly larger than the training MSE, this could be due to overfiting or a bad split in the train test process
+
+(C) fitting lasso and finding best lambda with 10-fold cv
+```{r}
+set.seed(123)
+lambda.list.lasso = 2 * exp(seq(0, log(1e-4), length = 100))
+cv_lasso_mod = cv.glmnet(x.train, y.train, alpha = 1, lambda = lambda.list.lasso, nfolds = 10)
+bestlam_lasso = cv_lasso_mod$lambda.min
+bestlam_lasso
+```
+refitting lasso
+```{r}
+lasso_mod = glmnet(x.train, y.train, alpha=1, lambda = bestlam_lasso)
+coef(lasso_mod)
+```
+The USYes and population are set to 0, they are interpreted to be insignificant parameters in finding the predicted sales when using the current lambda value.
+
+(d)Train MSE
+```{r}
+lasso_train_pred <- predict(lasso_mod, newx = x.train, s = bestlam_lasso)
+train_mse_lasso <- mean((y.train - lasso_train_pred)^2)
+train_mse_lasso
+```
+Test MSE
+```{r}
+lasso_test_pred <- predict(lasso_mod, newx = x.test, s = bestlam_lasso)
+test_mse_lasso <- mean((y.test - lasso_test_pred)^2)
+test_mse_lasso
+```
+The test MSE was larger, similar to the case in Ridge Regression
+
+(e)I find that despite LASSO undergoing variable selection in removing the US and population parameters, they still end up pretty similar. With the current seed (123), Ridge still has the more acdcurate model for the test dataset due to lower MSE though
+
+
+Analyzing Drug Use
+```{r}
+drug <- read_csv('drug.csv',
+col_names=c('ID','Age','Gender','Education','Country',
+'Ethnicity','Nscore',
+'Escore','Oscore','Ascore','Cscore',
+'Impulsive','SS','Alcohol','Amphet','Amyl','Benzos',
+'Caff','Cannabis', 'Choc','Coke','Crack','Ecstasy',
+'Heroin','Ketamine','Legalh','LSD','Meth',
+'Mushrooms','Nicotine','Semer','VSA'))
+```
+```{r}
+head(drug)
+```
+
+(a) creating a new factor response
+```{r}
+drug <- drug %>%
+mutate(recent_nicotine_use = factor(ifelse(Nicotine >= "CL3", "Yes", "No"),levels = c("No", "Yes")));
+```
+(b)
+```{r}
+sub_drug <- drug %>%
+  select(Age:SS, recent_nicotine_use)
+
+head(sub_drug)
+```
+
+(c)
+```{r}
+set.seed(123)
+train = sample(nrow(sub_drug), 1000)
+drug.train = sub_drug[train, ]
+drug.test = sub_drug[-train, ]
+```
+
+(d)
+```{r}
+drug_logr <- glm(recent_nicotine_use ~ . , data = drug.train, family = "binomial")
+summary(drug_logr)
+```
+(e)
+```{r}
+tree.drugs = tree(recent_nicotine_use  ~ . , data = drug.train)
+
+summary(tree.drugs)
+plot(tree.drugs)
+text(tree.drugs, pretty = 0, cex = .4, col = "red")
+title("decision tree on nicotine usage", cex = 0.8)
+```
+(f)
+```{r}
+set.seed(123)
+drug_tree.cv = cv.tree(tree.drugs, FUN=prune.misclass, K=5)
+drug_tree.cv$size
+drug_tree.cv$dev
+best.cv = min(drug_tree.cv$size[drug_tree.cv$dev == min(drug_tree.cv$dev)])
+best.cv
+```
+The best size is 7
+
+(g)
+```{r}
+pt.cv = prune.misclass(tree.drugs, best=best.cv)
+draw.tree(tree.drugs, nodeinfo=TRUE)
+```
+SS was split first, followed by education/country
+
+(h)
+```{r}
+tree.pred = predict(tree.drugs, drug.test, type="class")
+true.test = drug.test$recent_nicotine_use
+error = table(tree.pred, true.test)
+error
+```
+test error rate
+```{r}
+1-sum(diag(error))/sum(error)
+```
+
+TPR and FPR
+```{r}
+TP <- error[2, 2]
+FP <- error[1, 2]
+FN <- error[2, 1] 
+TN <- error[1, 1] 
+TPR <- TP / (TP + FN)
+FPR <- FP / (FP + TN)
+TPR
+FPR
+```
+In the case of TPR, we calculate the percentages of true positive values out of the total between true positives and false negatives. (total number of positives)
+For FPR, it is the same concept but over the total of false positives and true negatives (total number of negatives)
+
+(i)
+```{r}
+set.seed(123)
+boost.nicotine = gbm(ifelse(recent_nicotine_use=="Yes",1,0)~., data=drug.train,
+distribution="bernoulli", n.trees=1000, interaction.depth=2, shrinkage = 0.01)
+summary(boost.nicotine)
+```
+SS country and age seem to be the most important (in that order)
+
+(j)
+```{r}
+rf.drugs = randomForest(recent_nicotine_use ~ ., data=drug.train, importance=TRUE)
+rf.drugs
+```
+oob error is 29.7%
+3 variables considered at each split in the trees
+500 trees used
+```{r}
+importance(rf.drugs)
+varImpPlot(rf.drugs, sort=T,
+main="Variable Importance for rf.drugs", n.var=5)
+4
+
+```
+
+Yeah, SS country and age seem to be the most important too. Similar to boosting
+
+(k) Boosting matrix
+```{r}
+yhat.boost = predict(boost.nicotine, newdata = drug.test,
+n.trees=1000, type = "response")
+# then convert the probability to labels
+yhat.boost = ifelse(yhat.boost > 0.2, 'Yes', 'No')
+table(drug.test$recent_nicotine_use, yhat.boost)
+```
+RF matrix
+
+```{r}
+yhat.rf = predict(rf.drugs, newdata = drug.test, type='Prob')
+yhat.rf2 <- ifelse(yhat.rf[, 2] > 0.2, "Yes", "No")
+table(drug.test$recent_nicotine_use, yhat.rf2)
+```
+823/489 = 1/6
+1.6x more people were predicted using the 20% metric
+

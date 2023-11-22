@@ -1,0 +1,220 @@
+---
+title: "Homework 2 PSTAT 131"
+author: "Nicholas Axl Andrian"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: pdf_document
+---
+
+```{r}
+#install.packages("tidyverse")
+#install.packages("dplyr")
+library(tidyverse)
+library(ISLR)
+library(ROCR)
+library(dplyr)
+library(ggplot2)
+```
+
+
+Linear Regression
+
+```{r}
+lm_model <- lm(mpg ~ cylinders + displacement + horsepower + weight + acceleration + year + origin, data = Auto)
+summary(lm_model)
+```
+1. Yes, I can reject the null hypothesis as Displacement, Weight, Year and Origin have a smaller p-value than the significance at 0.01, hence allowing us to reject the null hypothesis
+
+```{r}
+pred_val <- predict(lm_model, newdata = Auto)
+residuals <- Auto$mpg - pred_val
+training_mse <- mean(residuals^2)
+training_mse
+```
+2. There is no test MSE as the whole dataset was used as the training set.
+
+```{r}
+str(Auto)
+head(Auto)
+```
+3.
+```{r}
+new_data <- data.frame(
+  origin = 2,
+  cylinders = 4,
+  displacement = 132,
+  horsepower = 115,
+  weight = 3150,
+  acceleration = 34,
+  year = 94
+)
+pred_mpg <- predict(lm_model, newdata = new_data);
+pred_mpg
+```
+4. Using the summary of the coefficients in the lm_model, the difference between the mpg of a japanese vs american car would be 2*1.426141=2.852282, the difference between the mpg of a european and american car would be  1.426141
+
+5. 20*0.019896=0.39792
+
+
+Algae Classification using Logistic regression
+
+```{r}
+algae <- read_table2("algaeBloom.txt", col_names=
+c('season','size','speed','mxPH','mnO2','Cl','NO3','NH4',
+'oPO4','PO4','Chla','a1','a2','a3','a4','a5','a6','a7'),
+na="XXXXXXX")
+head(algae)
+```
+```{r}
+algae.transformed <- algae %>% mutate_at(vars(4:11), funs(log(.)))
+algae.transformed <- algae.transformed %>%
+mutate_at(vars(4:11),funs(ifelse(is.na(.),median(.,na.rm=TRUE),.)))
+# a1 == 0 means low
+algae.transformed <- algae.transformed %>% mutate(a1 = factor(as.integer(a1 > 5), levels = c(0, 1)))
+```
+
+Starting with the classification task
+
+```{r}
+calc_error_rate <- function(predicted.value, true.value){
+return(mean(true.value!=predicted.value))
+}
+```
+
+Train Test Split
+
+```{r}
+set.seed(123)
+test.indices = sample(1:nrow(algae.transformed), 50)
+algae.train=algae.transformed[-test.indices,]
+algae.test=algae.transformed[test.indices,]
+
+```
+3. logistic regression
+
+```{r}
+glm.fit <- glm(a1 ~ . - a2 - a3 - a4 - a5 - a6 - a7, data = algae.train, family = binomial)
+summary(glm.fit)
+```
+Training Data
+
+```{r}
+prob.training = predict(glm.fit, type="response")
+round(prob.training, digits=2)
+```
+```{r}
+algae.train = algae.train %>%
+mutate(pred_a1=as.factor(ifelse(prob.training<=0.5, 0, 1)))
+table(pred=algae.train$pred_a1, true=algae.train$a1)
+
+```
+Testing Data
+```{r}
+prob.test <- predict(glm.fit, newdata = algae.test, type = "response")
+round(prob.test, digits=2)
+```
+```{r}
+algae.test = algae.test %>%
+mutate(pred_a1=as.factor(ifelse(prob.test<=0.5, 0, 1)))
+table(pred=algae.test$pred_a1, true=algae.test$a1)
+```
+Error rates
+```{r}
+train_error_rate <- calc_error_rate(algae.train$pred_a1, algae.train$a1)
+test_error_rate <- calc_error_rate(algae.test$pred_a1, algae.test$a1)
+train_error_rate
+test_error_rate
+```
+
+4. ROC curves
+```{r}
+library(ROCR)
+pred = prediction(prob.test, algae.test$a1)
+perf = performance(pred, measure="tpr", x.measure="fpr")
+plot(perf, col=2, lwd=3, main="ROC curve")
+abline(0,1)
+```
+AUC
+```{r}
+auc = performance(pred, "auc")@y.values
+auc
+```
+
+Fundamentals of the bootstrap 
+3.
+```{r}
+n <- 1000
+
+missing_ratios <- rep(0, 1000)
+
+for (i in 1:1000) {
+  bootstrap_sample <- sample(1:n, n, replace = TRUE)
+  missing_ratio <- 1 - length(unique(bootstrap_sample)) / n
+  missing_ratios[i] <- missing_ratio
+}
+
+mean(missing_ratios)
+```
+Cross-validation estimate of test error
+
+1.
+
+```{r}
+dat = subset(Smarket, select = -c(Year,Today))
+dat$Direction = ifelse(dat$Direction == "Up", 1, 0)
+```
+
+
+```{r}
+set.seed(123)
+dat_indice <- sample(1:nrow(dat), 700)
+train_dat <- dat[dat_indice, ]
+test_dat <- dat[-dat_indice, ]
+fit.train <- glm(Direction ~ ., family = binomial, data = train_dat)
+summary(fit.train)
+```
+```{r}
+prob_test <- predict(fit.train, newdata = test_dat, type = "response")
+```
+
+```{r}
+test_dat = test_dat %>%
+mutate(pred_testdist=as.factor(ifelse(prob_test<=0.5, 0, 1)))
+table(pred=test_dat$pred_testdist, true=test_dat$Direction)
+dat_test_error_rate <- calc_error_rate(test_dat$pred_testdist, test_dat$Direction)
+dat_test_error_rate
+```
+key function
+```{r}
+do.chunk <- function(chunkid, folddef, dat, ...){
+  # Get training index
+  train = (folddef!=chunkid)
+  # Get training set and validation set
+  dat.train = dat[train, ]
+  dat.val = dat[-train, ]
+  # Train logistic regression model on training data
+  fit.train = glm(Direction ~ ., family = binomial, data = dat.train)
+  # get predicted value on the validation set
+  pred.val = predict(fit.train, newdata = dat.val, type = "response")
+  pred.val = ifelse(pred.val > .5, 1,0)
+  data.frame(fold = chunkid,
+    val.error = mean(pred.val != dat.val$Direction))
+}
+```
+
+2. Calculating error rate of 10-fold cv
+
+```{r}
+set.seed(123)
+nfold = 10;
+folds = cut(1:nrow(dat), breaks=nfold, labels=FALSE) %>% sample()
+error.folds = NULL;
+for (j in seq(10)){
+    tmp = do.chunk(chunkid=j, folddef=folds, dat)
+    error.folds = rbind(error.folds, tmp) # combine results
+}
+head(error.folds, 10)
+```
+```{r}
+mean(error.folds$val.error)
+```
+

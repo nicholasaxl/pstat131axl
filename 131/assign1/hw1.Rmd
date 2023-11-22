@@ -1,0 +1,133 @@
+---
+title: "Homework 1 PSTAT 131"
+author: "Nicholas Axl Andrian"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output: pdf_document
+---
+
+```{r}
+#install.packages("tidyverse")
+#install.packages("dplyr")
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+```
+
+
+Reading in the dataset
+
+1. Descriptive summary statistics
+
+```{r}
+algae <- read_table2("algaeBloom.txt", col_names=
+c('season','size','speed','mxPH','mnO2','Cl','NO3','NH4',
+'oPO4','PO4','Chla','a1','a2','a3','a4','a5','a6','a7'),
+na="XXXXXXX")
+glimpse(algae)
+```
+
+(a)
+```{r}
+season_count <- algae %>%
+  group_by(season) %>%
+  summarise(count = n())
+
+season_count
+```
+(b)
+```{r}
+total_null <- function(x)
+  return(sum(is.na(x)))
+
+null_values <- sapply(algae, total_null)
+null_values
+```
+```{r}
+chem_means <- colMeans(select(algae, mxPH,mnO2,Cl,NO3,NH4,
+oPO4,PO4,Chla), na.rm=TRUE)
+chem_means
+```
+
+```{r}
+chem_vars <- sapply(select(algae, mxPH,mnO2,Cl,NO3,NH4,
+oPO4,PO4,Chla), var, na.rm = TRUE)
+chem_vars
+```
+
+I noticed that there is pretty high variance when compared to the mean. This suggests a wide spread/dispersion in the data values due to high variability.
+
+(c)
+```{r}
+calc_median <- function(x){
+  med <- median(x, na.rm = TRUE)
+  return(med)
+}
+
+calc_mad <- function(x) {
+  med <- median(x, na.rm = TRUE)
+  mad_val <- abs(x - med)
+  mad_result <- median(mad_val, na.rm = TRUE)
+  
+  return(mad_result)
+}
+```
+```{r}
+chem_med <- sapply(select(algae, mxPH,mnO2,Cl,NO3,NH4,
+oPO4,PO4,Chla), calc_median)
+chem_med
+```
+
+```{r}
+chem_mad <- sapply(select(algae, mxPH,mnO2,Cl,NO3,NH4,
+oPO4,PO4,Chla), calc_mad)
+chem_mad
+```
+testing the mad function instead, seeing how it is different since I believe R's mad function uses scaling
+```{r}
+true_chem_mad <- sapply(select(algae, mxPH, mnO2, Cl, NO3, NH4, oPO4, PO4, Chla), mad, na.rm = TRUE)
+print(chem_mad)
+```
+I realised that the median and mad values are way lower than the mean and var. I assume this is because they are less sensitive to outliers. I also noticed that the chemicals with less null values happened to be similar to each other in terms of mean/var and med/mad. 
+
+2. Data Visualization
+(x)
+```{r}
+ggplot(algae, aes(x = mxPH)) +
+  geom_histogram(aes(y = after_stat(density)), color = "black") +
+  labs(title = "Histogram of mxPH", x = "mxPH", y = "Density")
+```
+It does not look very skewed. The shape itself looks symmetrical if you ignore the small observation on the most left. Otherwise if you include the whole picture you can say that it is left skewed since it extends a bit more to the left.
+(b)
+```{r}
+ggplot(algae, aes(x = mxPH)) +
+  geom_histogram(aes(y = after_stat(density)), color = "black") +
+  geom_density() +
+  geom_rug() +
+  labs(title = "Histogram of mxPH", x = "mxPH", y = "Density")
+```
+This makes it look more left skewed
+(c)
+```{r}
+ggplot(algae, aes(x = speed, y = a4)) +
+  geom_boxplot() +
+  labs(title = "A Conditioned Boxplot of Algal a4", x = "Speed", y = "a4")
+```
+Majority of the observations are very close to 0
+
+3
+(a)
+```{r}
+summary(algae)
+null_values
+sum(is.na(algae))
+```
+(b)
+```{r}
+algae.del <- algae %>%
+  filter(complete.cases(.))
+
+sum(is.na(algae.del))
+
+nrow(algae.del)
+```
+
